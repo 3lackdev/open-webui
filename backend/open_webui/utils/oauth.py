@@ -11,7 +11,7 @@ from fastapi import (
     HTTPException,
     status,
 )
-from starlette.responses import RedirectResponse
+from starlette.responses import RedirectResponse, HTMLResponse
 
 from open_webui.models.auths import Auths
 from open_webui.models.users import Users
@@ -433,6 +433,25 @@ class OAuthManager:
                 samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
                 secure=WEBUI_AUTH_COOKIE_SECURE,
             )
-        # Redirect back to the frontend with the JWT token
-        redirect_url = f"{request.base_url}auth#token={jwt_token}"
-        return RedirectResponse(url=redirect_url, headers=response.headers)
+        # After generating jwt_token, return HTML that posts message to parent
+        if request.headers.get('User-Agent', '').find('Teams/') > -1:
+            # For Teams desktop app, redirect directly
+            redirect_url = f"{request.base_url}auth#token={jwt_token}"
+            return RedirectResponse(url=redirect_url, headers=response.headers)
+        else:
+            # For browser popup, use postMessage
+            html_content = f"""
+            <html>
+            <body>
+                <script>
+                    if (window.opener) {{
+                        window.opener.postMessage({{ token: "{jwt_token}" }}, "*");
+                        window.close();
+                    }} else {{
+                        window.location.href = "{request.base_url}auth#token={jwt_token}";
+                    }}
+                </script>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=html_content)
