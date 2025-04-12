@@ -433,8 +433,11 @@ class OAuthManager:
                 samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
                 secure=WEBUI_AUTH_COOKIE_SECURE,
             )
-        # After generating jwt_token, return HTML that posts message to parent
-        if request.headers.get('User-Agent', '').find('Teams/') > -1:
+        # Check if request is from Teams app by checking user agent
+        user_agent = request.headers.get('User-Agent', '')
+        is_teams_app = 'Teams' in user_agent or 'TeamsSandboxApp' in user_agent
+        
+        if is_teams_app:
             # For Teams desktop app, redirect directly
             redirect_url = f"{request.base_url}auth#token={jwt_token}"
             return RedirectResponse(url=redirect_url, headers=response.headers)

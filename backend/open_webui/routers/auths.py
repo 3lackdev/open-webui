@@ -533,27 +533,25 @@ async def signout(request: Request, response: Response):
         if oauth_id_token:
             try:
                 async with ClientSession() as session:
-                    async with session.get(OPENID_PROVIDER_URL.value) as resp:
-                        if resp.status == 200:
-                            openid_data = await resp.json()
-                            logout_url = openid_data.get("end_session_endpoint")
-                            if logout_url:
-                                response.delete_cookie("oauth_id_token")
-                                return RedirectResponse(
-                                    headers=response.headers,
-                                    url=f"{logout_url}?id_token_hint={oauth_id_token}",
-                                )
-                        else:
-                            raise HTTPException(
-                                status_code=resp.status,
-                                detail="Failed to fetch OpenID configuration",
-                            )
+                    try:
+                        async with session.get(OPENID_PROVIDER_URL.value) as resp:
+                            if (resp.status == 200):
+                                openid_data = await resp.json()
+                                logout_url = openid_data.get("end_session_endpoint")
+                                if logout_url:
+                                    response.delete_cookie("oauth_id_token")
+                                    return RedirectResponse(
+                                        headers=response.headers,
+                                        url=f"{logout_url}?id_token_hint={oauth_id_token}",
+                                    )
+                    except Exception as e:
+                        # Log the error but continue with local signout
+                        log.error(f"Failed to connect to OpenID provider: {str(e)}")
+                        response.delete_cookie("oauth_id_token")
             except Exception as e:
-                log.error(f"OpenID signout error: {str(e)}")
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to sign out from the OpenID provider.",
-                )
+                # Log the error but continue with local signout
+                log.error(f"Session error during OpenID signout: {str(e)}")
+                response.delete_cookie("oauth_id_token")
 
     return {"status": True}
 
