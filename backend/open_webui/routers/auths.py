@@ -194,8 +194,8 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
             ciphers=LDAP_CIPHERS,
         )
     except Exception as e:
-        log.error(f"TLS configuration error: {str(e)}")
-        raise HTTPException(400, detail="Failed to configure TLS for LDAP connection.")
+        log.error(f"An error occurred on TLS: {str(e)}")
+        raise HTTPException(400, detail=str(e))
 
     try:
         server = Server(
@@ -230,13 +230,11 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
 
         entry = connection_app.entries[0]
         username = str(entry[f"{LDAP_ATTRIBUTE_FOR_USERNAME}"]).lower()
-        email = entry[f"{LDAP_ATTRIBUTE_FOR_MAIL}"]
-        if not email:
-            raise HTTPException(400, "User does not have a valid email address.")
-        elif isinstance(email, str):
+        email = str(entry[f"{LDAP_ATTRIBUTE_FOR_MAIL}"])
+        if not email or email == "" or email == "[]":
+            raise HTTPException(400, f"User {form_data.user} does not have email.")
+        else:
             email = email.lower()
-        elif isinstance(email, list):
-            email = email[0].lower()
 
         cn = str(entry["cn"])
         user_dn = entry.entry_dn
@@ -250,7 +248,7 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
                 authentication="SIMPLE",
             )
             if not connection_user.bind():
-                raise HTTPException(400, "Authentication failed.")
+                raise HTTPException(400, f"Authentication failed for {form_data.user}")
 
             user = Users.get_user_by_email(email)
             if not user:
@@ -278,10 +276,7 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
                 except HTTPException:
                     raise
                 except Exception as err:
-                    log.error(f"LDAP user creation error: {str(err)}")
-                    raise HTTPException(
-                        500, detail="Internal error occurred during LDAP user creation."
-                    )
+                    raise HTTPException(500, detail=ERROR_MESSAGES.DEFAULT(err))
 
             user = Auths.authenticate_user_by_trusted_header(email)
 
@@ -317,10 +312,12 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
             else:
                 raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
         else:
-            raise HTTPException(400, "User record mismatch.")
+            raise HTTPException(
+                400,
+                f"User {form_data.user} does not match the record. Search result: {str(entry[f'{LDAP_ATTRIBUTE_FOR_USERNAME}'])}",
+            )
     except Exception as e:
-        log.error(f"LDAP authentication error: {str(e)}")
-        raise HTTPException(400, detail="LDAP authentication failed.")
+        raise HTTPException(400, detail=str(e))
 
 
 ############################
@@ -456,13 +453,6 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
             # Disable signup after the first user is created
             request.app.state.config.ENABLE_SIGNUP = False
 
-        # The password passed to bcrypt must be 72 bytes or fewer. If it is longer, it will be truncated before hashing.
-        if len(form_data.password.encode("utf-8")) > 72:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail=ERROR_MESSAGES.PASSWORD_TOO_LONG,
-            )
-
         hashed = get_password_hash(form_data.password)
         user = Auths.insert_new_auth(
             form_data.email.lower(),
@@ -529,8 +519,7 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
         else:
             raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
     except Exception as err:
-        log.error(f"Signup error: {str(err)}")
-        raise HTTPException(500, detail="An internal error occurred during signup.")
+        raise HTTPException(500, detail=ERROR_MESSAGES.DEFAULT(err))
 
 
 @router.get("/signout")
@@ -542,25 +531,23 @@ async def signout(request: Request, response: Response):
         if oauth_id_token:
             try:
                 async with ClientSession() as session:
-                    try:
-                        async with session.get(OPENID_PROVIDER_URL.value) as resp:
-                            if (resp.status == 200):
-                                openid_data = await resp.json()
-                                logout_url = openid_data.get("end_session_endpoint")
-                                if logout_url:
-                                    response.delete_cookie("oauth_id_token")
-                                    return RedirectResponse(
-                                        headers=response.headers,
-                                        url=f"{logout_url}?id_token_hint={oauth_id_token}",
-                                    )
-                    except Exception as e:
-                        # Log the error but continue with local signout
-                        log.error(f"Failed to connect to OpenID provider: {str(e)}")
-                        response.delete_cookie("oauth_id_token")
+                    async with session.get(OPENID_PROVIDER_URL.value) as resp:
+                        if resp.status == 200:
+                            openid_data = await resp.json()
+                            logout_url = openid_data.get("end_session_endpoint")
+                            if logout_url:
+                                response.delete_cookie("oauth_id_token")
+                                return RedirectResponse(
+                                    headers=response.headers,
+                                    url=f"{logout_url}?id_token_hint={oauth_id_token}",
+                                )
+                        else:
+                            raise HTTPException(
+                                status_code=resp.status,
+                                detail="Failed to fetch OpenID configuration",
+                            )
             except Exception as e:
-                # Log the error but continue with local signout
-                log.error(f"Session error during OpenID signout: {str(e)}")
-                response.delete_cookie("oauth_id_token")
+                raise HTTPException(status_code=500, detail=str(e))
 
     return {"status": True}
 
@@ -604,10 +591,7 @@ async def add_user(form_data: AddUserForm, user=Depends(get_admin_user)):
         else:
             raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
     except Exception as err:
-        log.error(f"Add user error: {str(err)}")
-        raise HTTPException(
-            500, detail="An internal error occurred while adding the user."
-        )
+        raise HTTPException(500, detail=ERROR_MESSAGES.DEFAULT(err))
 
 
 ############################
@@ -779,6 +763,11 @@ async def update_ldap_server(
         value = getattr(form_data, key)
         if not value:
             raise HTTPException(400, detail=f"Required field {key} is empty")
+
+    if form_data.use_tls and not form_data.certificate_path:
+        raise HTTPException(
+            400, detail="TLS is enabled but certificate file path is missing"
+        )
 
     request.app.state.config.LDAP_SERVER_LABEL = form_data.label
     request.app.state.config.LDAP_SERVER_HOST = form_data.host

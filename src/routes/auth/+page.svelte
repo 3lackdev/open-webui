@@ -138,49 +138,12 @@
 		}
 	}
 
-	const openMicrosoftPopup = () => {
-		// Check if running in Teams desktop app
-		if (window.navigator.userAgent.includes("Teams/")) {
-			// Open directly in current window for Teams
-			window.location.href = `${WEBUI_BASE_URL}/oauth/microsoft/login`;
-			return;
-		}
-
-		// Regular popup for browser
-		const width = 600;
-		const height = 600;
-		const left = window.screen.width / 2 - width / 2;
-		const top = window.screen.height / 2 - height / 2;
-			
-		window.open(
-			`${WEBUI_BASE_URL}/oauth/microsoft/login`,
-			'Microsoft Login',
-			`toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${width}, height=${height}, top=${top}, left=${left}`
-		);
-	};
-
 	onMount(async () => {
 		if ($user !== undefined) {
 			const redirectPath = querystringValue('redirect') || '/';
 			goto(redirectPath);
 		}
 		await checkOauthCallback();
-
-		window.addEventListener('message', async (event) => {
-			if (event.origin === window.location.origin) {
-				const { token } = event.data;
-				if (token) {
-					const sessionUser = await getSessionUser(token).catch((error) => {
-						toast.error(`${error}`);
-						return null;
-					});
-					if (sessionUser) {
-						localStorage.token = token;
-						await setSessionUser(sessionUser);
-					}
-				}
-			}
-		});
 
 		loaded = true;
 		setLogoImage();
@@ -269,7 +232,7 @@
 
 								{#if $config?.onboarding ?? false}
 									<div class=" mt-1 text-xs font-medium text-gray-500">
-													ⓘ {$WEBUI_NAME}
+										ⓘ {$WEBUI_NAME}
 										{$i18n.t(
 											'does not make any external connections, and your data stays securely on your locally hosted server.'
 										)}
@@ -424,7 +387,9 @@
 								{#if $config?.oauth?.providers?.microsoft}
 									<button
 										class="flex justify-center items-center bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"
-										on:click={openMicrosoftPopup}
+										on:click={() => {
+											window.location.href = `${WEBUI_BASE_URL}/oauth/microsoft/login`;
+										}}
 									>
 										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" class="size-6 mr-3">
 											<rect x="1" y="1" width="9" height="9" fill="#f25022" /><rect

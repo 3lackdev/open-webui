@@ -11,7 +11,7 @@ from fastapi import (
     HTTPException,
     status,
 )
-from starlette.responses import RedirectResponse, HTMLResponse
+from starlette.responses import RedirectResponse
 
 from open_webui.models.auths import Auths
 from open_webui.models.users import Users
@@ -326,45 +326,40 @@ class OAuthManager:
                     raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
                 picture_claim = auth_manager_config.OAUTH_PICTURE_CLAIM
-                if picture_claim:
-                    picture_url = user_data.get(
-                        picture_claim, OAUTH_PROVIDERS[provider].get("picture_url", "")
-                    )
-                    if picture_url:
-                        # Download the profile image into a base64 string
-                        try:
-                            access_token = token.get("access_token")
-                            get_kwargs = {}
-                            if access_token:
-                                get_kwargs["headers"] = {
-                                    "Authorization": f"Bearer {access_token}",
-                                }
-                            async with aiohttp.ClientSession() as session:
-                                async with session.get(
-                                    picture_url, **get_kwargs
-                                ) as resp:
-                                    if resp.ok:
-                                        picture = await resp.read()
-                                        base64_encoded_picture = base64.b64encode(
-                                            picture
-                                        ).decode("utf-8")
-                                        guessed_mime_type = mimetypes.guess_type(
-                                            picture_url
-                                        )[0]
-                                        if guessed_mime_type is None:
-                                            # assume JPG, browsers are tolerant enough of image formats
-                                            guessed_mime_type = "image/jpeg"
-                                        picture_url = f"data:{guessed_mime_type};base64,{base64_encoded_picture}"
-                                    else:
-                                        picture_url = "/user.png"
-                        except Exception as e:
-                            log.error(
-                                f"Error downloading profile image '{picture_url}': {e}"
-                            )
-                            picture_url = "/user.png"
-                    if not picture_url:
+                picture_url = user_data.get(
+                    picture_claim, OAUTH_PROVIDERS[provider].get("picture_url", "")
+                )
+                if picture_url:
+                    # Download the profile image into a base64 string
+                    try:
+                        access_token = token.get("access_token")
+                        get_kwargs = {}
+                        if access_token:
+                            get_kwargs["headers"] = {
+                                "Authorization": f"Bearer {access_token}",
+                            }
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(picture_url, **get_kwargs) as resp:
+                                if resp.ok:
+                                    picture = await resp.read()
+                                    base64_encoded_picture = base64.b64encode(
+                                        picture
+                                    ).decode("utf-8")
+                                    guessed_mime_type = mimetypes.guess_type(
+                                        picture_url
+                                    )[0]
+                                    if guessed_mime_type is None:
+                                        # assume JPG, browsers are tolerant enough of image formats
+                                        guessed_mime_type = "image/jpeg"
+                                    picture_url = f"data:{guessed_mime_type};base64,{base64_encoded_picture}"
+                                else:
+                                    picture_url = "/user.png"
+                    except Exception as e:
+                        log.error(
+                            f"Error downloading profile image '{picture_url}': {e}"
+                        )
                         picture_url = "/user.png"
-                else:
+                if not picture_url:
                     picture_url = "/user.png"
 
                 username_claim = auth_manager_config.OAUTH_USERNAME_CLAIM
@@ -433,28 +428,6 @@ class OAuthManager:
                 samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
                 secure=WEBUI_AUTH_COOKIE_SECURE,
             )
-        # Check if request is from Teams app by checking user agent
-        user_agent = request.headers.get('User-Agent', '')
-        is_teams_app = 'Teams' in user_agent or 'TeamsSandboxApp' in user_agent
-        
-        if is_teams_app:
-            # For Teams desktop app, redirect directly
-            redirect_url = f"{request.base_url}auth#token={jwt_token}"
-            return RedirectResponse(url=redirect_url, headers=response.headers)
-        else:
-            # For browser popup, use postMessage
-            html_content = f"""
-            <html>
-            <body>
-                <script>
-                    if (window.opener) {{
-                        window.opener.postMessage({{ token: "{jwt_token}" }}, "*");
-                        window.close();
-                    }} else {{
-                        window.location.href = "{request.base_url}auth#token={jwt_token}";
-                    }}
-                </script>
-            </body>
-            </html>
-            """
-            return HTMLResponse(content=html_content)
+        # Redirect back to the frontend with the JWT token
+        redirect_url = f"{request.base_url}auth#token={jwt_token}"
+        return RedirectResponse(url=redirect_url, headers=response.headers)

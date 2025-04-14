@@ -48,8 +48,7 @@
 		splitStream,
 		sleep,
 		removeDetails,
-		getPromptVariables,
-		processDetails
+		getPromptVariables
 	} from '$lib/utils';
 
 	import { generateChatCompletion } from '$lib/apis/ollama';
@@ -74,8 +73,7 @@
 		generateQueries,
 		chatAction,
 		generateMoACompletion,
-		stopTask,
-		getTaskIdsByChatId
+		stopTask
 	} from '$lib/apis';
 	import { getTools } from '$lib/apis/tools';
 
@@ -131,7 +129,7 @@
 		currentId: null
 	};
 
-	let taskIds = null;
+	let taskId = null;
 
 	// Chat Input
 	let prompt = '';
@@ -402,7 +400,6 @@
 		if (!$chatId) {
 			chatIdUnsubscriber = chatId.subscribe(async (value) => {
 				if (!value) {
-					await tick(); // Wait for DOM updates
 					await initNewChat();
 				}
 			});
@@ -819,21 +816,8 @@
 				await tick();
 
 				if (history.currentId) {
-					for (const message of Object.values(history.messages)) {
-						if (message.role === 'assistant') {
-							message.done = true;
-						}
-					}
+					history.messages[history.currentId].done = true;
 				}
-
-				const taskRes = await getTaskIdsByChatId(localStorage.token, $chatId).catch((error) => {
-					return null;
-				});
-
-				if (taskRes) {
-					taskIds = taskRes.task_ids;
-				}
-
 				await tick();
 
 				return true;
@@ -905,7 +889,7 @@
 			}
 		}
 
-		taskIds = null;
+		taskId = null;
 	};
 
 	const chatActionHandler = async (chatId, actionId, modelId, responseMessageId, event = null) => {
@@ -1352,10 +1336,6 @@
 		parentId: string,
 		{ modelId = null, modelIdx = null, newChat = false } = {}
 	) => {
-		if (autoScroll) {
-			scrollToBottom();
-		}
-
 		let _chatId = JSON.parse(JSON.stringify($chatId));
 		_history = JSON.parse(JSON.stringify(_history));
 
@@ -1518,7 +1498,7 @@
 						role: 'system',
 						content: `${promptTemplate(
 							params?.system ?? $settings?.system ?? '',
-							$user?.name,
+							$user.name,
 							$settings?.userLocation
 								? await getAndUpdateUserLocation(localStorage.token).catch((err) => {
 										console.error(err);
@@ -1534,7 +1514,7 @@
 				: undefined,
 			...createMessagesList(_history, responseMessageId).map((message) => ({
 				...message,
-				content: processDetails(message.content)
+				content: removeDetails(message.content, ['reasoning', 'code_interpreter'])
 			}))
 		].filter((message) => message);
 
@@ -1592,23 +1572,23 @@
 				features: {
 					image_generation:
 						$config?.features?.enable_image_generation &&
-						($user?.role === 'admin' || $user?.permissions?.features?.image_generation)
+						($user.role === 'admin' || $user?.permissions?.features?.image_generation)
 							? imageGenerationEnabled
 							: false,
 					code_interpreter:
 						$config?.features?.enable_code_interpreter &&
-						($user?.role === 'admin' || $user?.permissions?.features?.code_interpreter)
+						($user.role === 'admin' || $user?.permissions?.features?.code_interpreter)
 							? codeInterpreterEnabled
 							: false,
 					web_search:
 						$config?.features?.enable_web_search &&
-						($user?.role === 'admin' || $user?.permissions?.features?.web_search)
+						($user.role === 'admin' || $user?.permissions?.features?.web_search)
 							? webSearchEnabled || ($settings?.webSearch ?? false) === 'always'
 							: false
 				},
 				variables: {
 					...getPromptVariables(
-						$user?.name,
+						$user.name,
 						$settings?.userLocation
 							? await getAndUpdateUserLocation(localStorage.token).catch((err) => {
 									console.error(err);
@@ -1663,11 +1643,7 @@
 			if (res.error) {
 				await handleOpenAIError(res.error, responseMessage);
 			} else {
-				if (taskIds) {
-					taskIds.push(res.task_id);
-				} else {
-					taskIds = [res.task_id];
-				}
+				taskId = res.task_id;
 			}
 		}
 
@@ -1718,26 +1694,23 @@
 	};
 
 	const stopResponse = async () => {
-		if (taskIds) {
-			for (const taskId of taskIds) {
-				const res = await stopTask(localStorage.token, taskId).catch((error) => {
-					toast.error(`${error}`);
-					return null;
-				});
-			}
+		if (taskId) {
+			const res = await stopTask(localStorage.token, taskId).catch((error) => {
+				toast.error(`${error}`);
+				return null;
+			});
 
-			taskIds = null;
+			if (res) {
+				taskId = null;
 
-			const responseMessage = history.messages[history.currentId];
-			// Set all response messages to done
-			for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
-				history.messages[messageId].done = true;
-			}
+				const responseMessage = history.messages[history.currentId];
+				responseMessage.done = true;
 
-			history.messages[history.currentId] = responseMessage;
+				history.messages[history.currentId] = responseMessage;
 
-			if (autoScroll) {
-				scrollToBottom();
+				if (autoScroll) {
+					scrollToBottom();
+				}
 			}
 		}
 	};
@@ -1766,11 +1739,6 @@
 		history.currentId = userMessageId;
 
 		await tick();
-
-		if (autoScroll) {
-			scrollToBottom();
-		}
-
 		await sendPrompt(history, userPrompt, userMessageId);
 	};
 
@@ -1780,10 +1748,6 @@
 		if (history.currentId) {
 			let userMessage = history.messages[message.parentId];
 			let userPrompt = userMessage.content;
-
-			if (autoScroll) {
-				scrollToBottom();
-			}
 
 			if ((userMessage?.models ?? [...selectedModels]).length == 1) {
 				// If user message has only one model selected, sendPrompt automatically selects it for regeneration
@@ -1949,7 +1913,7 @@
 		: ' '} w-full max-w-full flex flex-col"
 	id="chat-container"
 >
-	{#if !loading}
+	{#if chatIdProp === '' || (!loading && chatIdProp)}
 		{#if $settings?.backgroundImageUrl ?? null}
 			<div
 				class="absolute {$showSidebar
@@ -1963,27 +1927,75 @@
 			/>
 		{/if}
 
+		<Navbar
+			bind:this={navbarElement}
+			chat={{
+				id: $chatId,
+				chat: {
+					title: $chatTitle,
+					models: selectedModels,
+					system: $settings.system ?? undefined,
+					params: params,
+					history: history,
+					timestamp: Date.now()
+				}
+			}}
+			title={$chatTitle}
+			bind:selectedModels
+			shareEnabled={!!history.currentId}
+			{initNewChat}
+		/>
+
 		<PaneGroup direction="horizontal" class="w-full h-full">
-			<Pane defaultSize={50} class="h-full flex relative max-w-full flex-col">
-				<Navbar
-					bind:this={navbarElement}
-					chat={{
-						id: $chatId,
-						chat: {
-							title: $chatTitle,
-							models: selectedModels,
-							system: $settings.system ?? undefined,
-							params: params,
-							history: history,
-							timestamp: Date.now()
-						}
-					}}
-					{history}
-					title={$chatTitle}
-					bind:selectedModels
-					shareEnabled={!!history.currentId}
-					{initNewChat}
-				/>
+			<Pane defaultSize={50} class="h-full flex w-full relative">
+				{#if !history.currentId && !$chatId && selectedModels.length <= 1 && ($banners.length > 0 || ($config?.license_metadata?.type ?? null) === 'trial' || (($config?.license_metadata?.seats ?? null) !== null && $config?.user_count > $config?.license_metadata?.seats))}
+					<div class="absolute top-12 left-0 right-0 w-full z-30">
+						<div class=" flex flex-col gap-1 w-full">
+							{#if ($config?.license_metadata?.type ?? null) === 'trial'}
+								<Banner
+									banner={{
+										type: 'info',
+										title: 'Trial License',
+										content: $i18n.t(
+											'You are currently using a trial license. Please contact support to upgrade your license.'
+										)
+									}}
+								/>
+							{/if}
+
+							{#if ($config?.license_metadata?.seats ?? null) !== null && $config?.user_count > $config?.license_metadata?.seats}
+								<Banner
+									banner={{
+										type: 'error',
+										title: 'License Error',
+										content: $i18n.t(
+											'Exceeded the number of seats in your license. Please contact support to increase the number of seats.'
+										)
+									}}
+								/>
+							{/if}
+
+							{#each $banners.filter( (b) => (b.dismissible ? !JSON.parse(localStorage.getItem('dismissedBannerIds') ?? '[]').includes(b.id) : true) ) as banner}
+								<Banner
+									{banner}
+									on:dismiss={(e) => {
+										const bannerId = e.detail;
+
+										localStorage.setItem(
+											'dismissedBannerIds',
+											JSON.stringify(
+												[
+													bannerId,
+													...JSON.parse(localStorage.getItem('dismissedBannerIds') ?? '[]')
+												].filter((id) => $banners.find((b) => b.id === id))
+											)
+										);
+									}}
+								/>
+							{/each}
+						</div>
+					</div>
+				{/if}
 
 				<div class="flex flex-col flex-auto z-10 w-full @container">
 					{#if $settings?.landingPageMode === 'chat' || createMessagesList(history, history.currentId).length > 0}
@@ -2021,7 +2033,6 @@
 						<div class=" pb-[1rem]">
 							<MessageInput
 								{history}
-								{taskIds}
 								{selectedModels}
 								bind:files
 								bind:prompt

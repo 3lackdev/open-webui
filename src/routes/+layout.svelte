@@ -205,19 +205,17 @@
 	};
 
 	const executeTool = async (data, cb) => {
-		const toolServer = $settings?.toolServers?.find((server) => server.url === data.server?.url);
-		const toolServerData = $toolServers?.find((server) => server.url === data.server?.url);
+		const toolServer = $toolServers?.find((server) => server.url === data.server?.url);
 
 		console.log('executeTool', data, toolServer);
 
 		if (toolServer) {
-			console.log(toolServer);
 			const res = await executeToolServer(
-				(toolServer?.auth_type ?? 'bearer') === 'bearer' ? toolServer?.key : localStorage.token,
+				toolServer.key,
 				toolServer.url,
 				data?.name,
 				data?.params,
-				toolServerData
+				toolServer
 			);
 
 			console.log('executeToolServer', res);

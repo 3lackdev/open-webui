@@ -63,12 +63,10 @@
 			file_upload: true,
 			delete: true,
 			edit: true,
-			multiple_models: true,
 			temporary: true,
-			temporary_enforced: false
+			temporary_enforced: true
 		},
 		features: {
-			direct_tool_servers: false,
 			web_search: true,
 			image_generation: true,
 			code_interpreter: true

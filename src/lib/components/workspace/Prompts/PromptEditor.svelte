@@ -21,7 +21,7 @@
 	let command = '';
 	let content = '';
 
-	let accessControl = {};
+	let accessControl = null;
 
 	let showAccessControlModal = false;
 
