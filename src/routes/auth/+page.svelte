@@ -16,6 +16,8 @@
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import OnBoarding from '$lib/components/OnBoarding.svelte';
 
+	import { app, authentication } from '@microsoft/teams-js';
+
 	const i18n = getContext('i18n');
 
 	let loaded = false;
@@ -111,6 +113,15 @@
 		}
 		localStorage.token = token;
 		await setSessionUser(sessionUser);
+
+		try {
+			await app.initialize();
+			authentication.notifySuccess(token);
+			return;
+		} catch {
+			authentication.notifyFailure('NotifyFailed');
+			return;
+		}
 	};
 
 	let onboarding = false;
@@ -137,6 +148,34 @@
 			}
 		}
 	}
+
+	const openMicrosoftPopup = async () => {
+		try {
+			// เริ่ม SDK
+			await app.initialize();
+
+			// เปิดป๊อป‑อัปไปยังหน้าเดียวกัน (จะเจอ callback hash หลังล็อกอินเสร็จ)
+			const resultToken = await authentication.authenticate({
+				url: `${WEBUI_BASE_URL}/oauth/microsoft/login`,
+				width: 600,
+				height: 600
+			});
+
+			// เมื่อ popup ปิดตัวเอง (notifySuccess) promise จะ resolve ด้วย token
+			// console.log('Auth success, token:', resultToken);
+
+			// เอา token ไปเรียก API backend แล้วเซ็ต session
+			const sessionUser = await getSessionUser(resultToken);
+			await setSessionUser(sessionUser);
+
+			// สุดท้าย reload แท็บหลัก
+			window.location.reload();
+		} catch (error) {
+			console.error('Auth failure:', error);
+			// ถ้าล้มเหลว ให้ redirect fallback
+			window.location.href = `${WEBUI_BASE_URL}/oauth/microsoft/login`;
+		}
+	};
 
 	onMount(async () => {
 		if ($user !== undefined) {
@@ -387,9 +426,7 @@
 								{#if $config?.oauth?.providers?.microsoft}
 									<button
 										class="flex justify-center items-center bg-gray-700/5 hover:bg-gray-700/10 dark:bg-gray-100/5 dark:hover:bg-gray-100/10 dark:text-gray-300 dark:hover:text-white transition w-full rounded-full font-medium text-sm py-2.5"
-										on:click={() => {
-											window.location.href = `${WEBUI_BASE_URL}/oauth/microsoft/login`;
-										}}
+										on:click={openMicrosoftPopup}
 									>
 										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" class="size-6 mr-3">
 											<rect x="1" y="1" width="9" height="9" fill="#f25022" /><rect
