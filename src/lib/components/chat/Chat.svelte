@@ -91,7 +91,7 @@
 
 	export let chatIdProp = '';
 
-	let loading = false;
+	let loading = true;
 
 	const eventTarget = new EventTarget();
 	let controlPane;
@@ -142,7 +142,6 @@
 	$: if (chatIdProp) {
 		(async () => {
 			loading = true;
-			console.log(chatIdProp);
 
 			prompt = '';
 			files = [];
@@ -150,22 +149,24 @@
 			webSearchEnabled = false;
 			imageGenerationEnabled = false;
 
+			if (localStorage.getItem(`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`)) {
+				try {
+					const input = JSON.parse(
+						localStorage.getItem(`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`)
+					);
+
+					prompt = input.prompt;
+					files = input.files;
+					selectedToolIds = input.selectedToolIds;
+					webSearchEnabled = input.webSearchEnabled;
+					imageGenerationEnabled = input.imageGenerationEnabled;
+					codeInterpreterEnabled = input.codeInterpreterEnabled;
+				} catch (e) {}
+			}
+
 			if (chatIdProp && (await loadChat())) {
 				await tick();
 				loading = false;
-
-				if (localStorage.getItem(`chat-input-${chatIdProp}`)) {
-					try {
-						const input = JSON.parse(localStorage.getItem(`chat-input-${chatIdProp}`));
-
-						prompt = input.prompt;
-						files = input.files;
-						selectedToolIds = input.selectedToolIds;
-						webSearchEnabled = input.webSearchEnabled;
-						imageGenerationEnabled = input.imageGenerationEnabled;
-					} catch (e) {}
-				}
-
 				window.setTimeout(() => scrollToBottom(), 0);
 				const chatInput = document.getElementById('chat-input');
 				chatInput?.focus();
@@ -236,9 +237,11 @@
 		await tick();
 		await tick();
 
-		const messageElement = document.getElementById(`message-${message.id}`);
-		if (messageElement) {
-			messageElement.scrollIntoView({ behavior: 'smooth' });
+		if ($settings?.scrollOnBranchChange ?? true) {
+			const messageElement = document.getElementById(`message-${message.id}`);
+			if (messageElement) {
+				messageElement.scrollIntoView({ behavior: 'smooth' });
+			}
 		}
 
 		await tick();
@@ -262,6 +265,21 @@
 					} else {
 						message.statusHistory = [data];
 					}
+				} else if (type === 'chat:completion') {
+					chatCompletionEventHandler(data, message, event.chat_id);
+				} else if (type === 'chat:message:delta' || type === 'message') {
+					message.content += data.content;
+				} else if (type === 'chat:message' || type === 'replace') {
+					message.content = data.content;
+				} else if (type === 'chat:message:files' || type === 'files') {
+					message.files = data.files;
+				} else if (type === 'chat:title') {
+					chatTitle.set(data);
+					currentChatPage.set(1);
+					await chats.set(await getChatList(localStorage.token, $currentChatPage));
+				} else if (type === 'chat:tags') {
+					chat = await getChatById(localStorage.token, $chatId);
+					allTags.set(await getAllTags(localStorage.token));
 				} else if (type === 'source' || type === 'citation') {
 					if (data?.type === 'code_execution') {
 						// Code execution; update existing code execution by ID, or add new one.
@@ -288,19 +306,19 @@
 							message.sources = [data];
 						}
 					}
-				} else if (type === 'chat:completion') {
-					chatCompletionEventHandler(data, message, event.chat_id);
-				} else if (type === 'chat:title') {
-					chatTitle.set(data);
-					currentChatPage.set(1);
-					await chats.set(await getChatList(localStorage.token, $currentChatPage));
-				} else if (type === 'chat:tags') {
-					chat = await getChatById(localStorage.token, $chatId);
-					allTags.set(await getAllTags(localStorage.token));
-				} else if (type === 'chat:message:delta' || type === 'message') {
-					message.content += data.content;
-				} else if (type === 'chat:message' || type === 'replace') {
-					message.content = data.content;
+				} else if (type === 'notification') {
+					const toastType = data?.type ?? 'info';
+					const toastContent = data?.content ?? '';
+
+					if (toastType === 'success') {
+						toast.success(toastContent);
+					} else if (toastType === 'error') {
+						toast.error(toastContent);
+					} else if (toastType === 'warning') {
+						toast.warning(toastContent);
+					} else {
+						toast.info(toastContent);
+					}
 				} else if (type === 'confirmation') {
 					eventCallback = cb;
 
@@ -333,19 +351,6 @@
 					eventConfirmationMessage = data.message;
 					eventConfirmationInputPlaceholder = data.placeholder;
 					eventConfirmationInputValue = data?.value ?? '';
-				} else if (type === 'notification') {
-					const toastType = data?.type ?? 'info';
-					const toastContent = data?.content ?? '';
-
-					if (toastType === 'success') {
-						toast.success(toastContent);
-					} else if (toastType === 'error') {
-						toast.error(toastContent);
-					} else if (toastType === 'warning') {
-						toast.warning(toastContent);
-					} else {
-						toast.info(toastContent);
-					}
 				} else {
 					console.log('Unknown message type', data);
 				}
@@ -395,6 +400,7 @@
 	};
 
 	onMount(async () => {
+		loading = true;
 		console.log('mounted');
 		window.addEventListener('message', onMessageHandler);
 		$socket?.on('chat-events', chatEventHandler);
@@ -412,22 +418,30 @@
 			}
 		}
 
-		if (localStorage.getItem(`chat-input-${chatIdProp}`)) {
+		if (localStorage.getItem(`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`)) {
 			try {
-				const input = JSON.parse(localStorage.getItem(`chat-input-${chatIdProp}`));
+				const input = JSON.parse(
+					localStorage.getItem(`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`)
+				);
+				console.log('chat-input', input);
 				prompt = input.prompt;
 				files = input.files;
 				selectedToolIds = input.selectedToolIds;
 				webSearchEnabled = input.webSearchEnabled;
 				imageGenerationEnabled = input.imageGenerationEnabled;
+				codeInterpreterEnabled = input.codeInterpreterEnabled;
 			} catch (e) {
 				prompt = '';
 				files = [];
 				selectedToolIds = [];
 				webSearchEnabled = false;
 				imageGenerationEnabled = false;
+				codeInterpreterEnabled = false;
 			}
 		}
+
+		loading = false;
+		await tick();
 
 		showControls.subscribe(async (value) => {
 			if (controlPane && !$mobile) {
@@ -1917,7 +1931,7 @@
 <svelte:head>
 	<title>
 		{$chatTitle
-			? `${$chatTitle.length > 30 ? `${$chatTitle.slice(0, 30)}...` : $chatTitle} | ${$WEBUI_NAME}`
+			? `${$chatTitle.length > 30 ? `${$chatTitle.slice(0, 30)}...` : $chatTitle} • ${$WEBUI_NAME}`
 			: `${$WEBUI_NAME}`}
 	</title>
 </svelte:head>
@@ -2036,10 +2050,13 @@
 								{stopResponse}
 								{createMessagePair}
 								onChange={(input) => {
-									if (input.prompt) {
-										localStorage.setItem(`chat-input-${$chatId}`, JSON.stringify(input));
+									if (input.prompt !== null) {
+										localStorage.setItem(
+											`chat-input${$chatId ? `-${$chatId}` : ''}`,
+											JSON.stringify(input)
+										);
 									} else {
-										localStorage.removeItem(`chat-input-${$chatId}`);
+										localStorage.removeItem(`chat-input${$chatId ? `-${$chatId}` : ''}`);
 									}
 								}}
 								on:upload={async (e) => {
