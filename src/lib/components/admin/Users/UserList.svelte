@@ -23,8 +23,6 @@
 	import AddUserModal from '$lib/components/admin/Users/UserList/AddUserModal.svelte';
 
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
-	import RoleUpdateConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
-
 	import Badge from '$lib/components/common/Badge.svelte';
 	import Plus from '$lib/components/icons/Plus.svelte';
 	import ChevronUp from '$lib/components/icons/ChevronUp.svelte';
@@ -35,33 +33,19 @@
 
 	const i18n = getContext('i18n');
 
-	let page = 1;
+	export let users = [];
 
-	let users = [];
-	let total = 0;
-
-	let query = '';
-	let orderBy = 'created_at'; // default sort key
-	let direction = 'asc'; // default sort order
-
+	let search = '';
 	let selectedUser = null;
+
+	let page = 1;
 
 	let showDeleteConfirmDialog = false;
 	let showAddUserModal = false;
 
 	let showUserChatsModal = false;
 	let showEditUserModal = false;
-	let showUpdateRoleModal = false;
 
-	const onUpdateRole = (user) => {
-		if (user.role === 'user') {
-			updateRoleHandler(user.id, 'admin');
-		} else if (user.role === 'pending') {
-			updateRoleHandler(user.id, 'user');
-		} else {
-			updateRoleHandler(user.id, 'pending');
-		}
-	};
 	const updateRoleHandler = async (id, role) => {
 		const res = await updateUserRole(localStorage.token, id, role).catch((error) => {
 			toast.error(`${error}`);
@@ -69,7 +53,7 @@
 		});
 
 		if (res) {
-			getUserList();
+			users = await getUsers(localStorage.token);
 		}
 	};
 
@@ -78,51 +62,42 @@
 			toast.error(`${error}`);
 			return null;
 		});
-
-		// if the user is deleted and the current page has only one user, go back to the previous page
-		if (users.length === 1 && page > 1) {
-			page -= 1;
-		}
-
 		if (res) {
-			getUserList();
+			users = await getUsers(localStorage.token);
 		}
 	};
 
-	const setSortKey = (key) => {
-		if (orderBy === key) {
-			direction = direction === 'asc' ? 'desc' : 'asc';
+	let sortKey = 'created_at'; // default sort key
+	let sortOrder = 'asc'; // default sort order
+
+	function setSortKey(key) {
+		if (sortKey === key) {
+			sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
 		} else {
-			orderBy = key;
-			direction = 'asc';
+			sortKey = key;
+			sortOrder = 'asc';
 		}
-	};
+	}
 
-	const getUserList = async () => {
-		try {
-			const res = await getUsers(localStorage.token, query, orderBy, direction, page).catch(
-				(error) => {
-					toast.error(`${error}`);
-					return null;
-				}
-			);
+	let filteredUsers;
 
-			if (res) {
-				users = res.users;
-				total = res.total;
+	$: filteredUsers = users
+		.filter((user) => {
+			if (search === '') {
+				return true;
+			} else {
+				let name = user.name.toLowerCase();
+				let email = user.email.toLowerCase();
+				const query = search.toLowerCase();
+				return name.includes(query) || email.includes(query);
 			}
-		} catch (err) {
-			console.error(err);
-		}
-	};
-
-	$: if (page) {
-		getUserList();
-	}
-
-	$: if (query !== null && orderBy && direction) {
-		getUserList();
-	}
+		})
+		.sort((a, b) => {
+			if (a[sortKey] < b[sortKey]) return sortOrder === 'asc' ? -1 : 1;
+			if (a[sortKey] > b[sortKey]) return sortOrder === 'asc' ? 1 : -1;
+			return 0;
+		})
+		.slice((page - 1) * 20, page * 20);
 </script>
 
 <ConfirmDialog
@@ -132,28 +107,13 @@
 	}}
 />
 
-<RoleUpdateConfirmDialog
-	bind:show={showUpdateRoleModal}
-	on:confirm={() => {
-		onUpdateRole(selectedUser);
-	}}
-	message={$i18n.t(`Are you sure you want to update this user\'s role to **{{ROLE}}**?`, {
-		ROLE:
-			selectedUser?.role === 'user'
-				? 'admin'
-				: selectedUser?.role === 'pending'
-					? 'user'
-					: 'pending'
-	})}
-/>
-
 {#key selectedUser}
 	<EditUserModal
 		bind:show={showEditUserModal}
 		{selectedUser}
 		sessionUser={$user}
 		on:save={async () => {
-			getUserList();
+			users = await getUsers(localStorage.token);
 		}}
 	/>
 {/key}
@@ -161,7 +121,7 @@
 <AddUserModal
 	bind:show={showAddUserModal}
 	on:save={async () => {
-		getUserList();
+		users = await getUsers(localStorage.token);
 	}}
 />
 <UserChatsModal bind:show={showUserChatsModal} user={selectedUser} />
@@ -189,19 +149,19 @@
 		<div class="flex self-center w-[1px] h-6 mx-2.5 bg-gray-50 dark:bg-gray-850" />
 
 		{#if ($config?.license_metadata?.seats ?? null) !== null}
-			{#if total > $config?.license_metadata?.seats}
+			{#if users.length > $config?.license_metadata?.seats}
 				<span class="text-lg font-medium text-red-500"
-					>{total} of {$config?.license_metadata?.seats}
+					>{users.length} of {$config?.license_metadata?.seats}
 					<span class="text-sm font-normal">available users</span></span
 				>
 			{:else}
 				<span class="text-lg font-medium text-gray-500 dark:text-gray-300"
-					>{total} of {$config?.license_metadata?.seats}
+					>{users.length} of {$config?.license_metadata?.seats}
 					<span class="text-sm font-normal">available users</span></span
 				>
 			{/if}
 		{:else}
-			<span class="text-lg font-medium text-gray-500 dark:text-gray-300">{total}</span>
+			<span class="text-lg font-medium text-gray-500 dark:text-gray-300">{users.length}</span>
 		{/if}
 	</div>
 
@@ -224,7 +184,7 @@
 				</div>
 				<input
 					class=" w-full text-sm pr-4 py-1 rounded-r-xl outline-hidden bg-transparent"
-					bind:value={query}
+					bind:value={search}
 					placeholder={$i18n.t('Search')}
 				/>
 			</div>
@@ -263,9 +223,9 @@
 					<div class="flex gap-1.5 items-center">
 						{$i18n.t('Role')}
 
-						{#if orderBy === 'role'}
+						{#if sortKey === 'role'}
 							<span class="font-normal"
-								>{#if direction === 'asc'}
+								>{#if sortOrder === 'asc'}
 									<ChevronUp className="size-2" />
 								{:else}
 									<ChevronDown className="size-2" />
@@ -286,9 +246,9 @@
 					<div class="flex gap-1.5 items-center">
 						{$i18n.t('Name')}
 
-						{#if orderBy === 'name'}
+						{#if sortKey === 'name'}
 							<span class="font-normal"
-								>{#if direction === 'asc'}
+								>{#if sortOrder === 'asc'}
 									<ChevronUp className="size-2" />
 								{:else}
 									<ChevronDown className="size-2" />
@@ -309,9 +269,9 @@
 					<div class="flex gap-1.5 items-center">
 						{$i18n.t('Email')}
 
-						{#if orderBy === 'email'}
+						{#if sortKey === 'email'}
 							<span class="font-normal"
-								>{#if direction === 'asc'}
+								>{#if sortOrder === 'asc'}
 									<ChevronUp className="size-2" />
 								{:else}
 									<ChevronDown className="size-2" />
@@ -333,9 +293,9 @@
 					<div class="flex gap-1.5 items-center">
 						{$i18n.t('Last Active')}
 
-						{#if orderBy === 'last_active_at'}
+						{#if sortKey === 'last_active_at'}
 							<span class="font-normal"
-								>{#if direction === 'asc'}
+								>{#if sortOrder === 'asc'}
 									<ChevronUp className="size-2" />
 								{:else}
 									<ChevronDown className="size-2" />
@@ -355,9 +315,9 @@
 				>
 					<div class="flex gap-1.5 items-center">
 						{$i18n.t('Created at')}
-						{#if orderBy === 'created_at'}
+						{#if sortKey === 'created_at'}
 							<span class="font-normal"
-								>{#if direction === 'asc'}
+								>{#if sortOrder === 'asc'}
 									<ChevronUp className="size-2" />
 								{:else}
 									<ChevronDown className="size-2" />
@@ -379,9 +339,9 @@
 					<div class="flex gap-1.5 items-center">
 						{$i18n.t('OAuth ID')}
 
-						{#if orderBy === 'oauth_sub'}
+						{#if sortKey === 'oauth_sub'}
 							<span class="font-normal"
-								>{#if direction === 'asc'}
+								>{#if sortOrder === 'asc'}
 									<ChevronUp className="size-2" />
 								{:else}
 									<ChevronDown className="size-2" />
@@ -399,14 +359,19 @@
 			</tr>
 		</thead>
 		<tbody class="">
-			{#each users as user, userIdx}
+			{#each filteredUsers as user, userIdx}
 				<tr class="bg-white dark:bg-gray-900 dark:border-gray-850 text-xs">
 					<td class="px-3 py-1 min-w-[7rem] w-28">
 						<button
 							class=" translate-y-0.5"
 							on:click={() => {
-								selectedUser = user;
-								showUpdateRoleModal = true;
+								if (user.role === 'user') {
+									updateRoleHandler(user.id, 'admin');
+								} else if (user.role === 'pending') {
+									updateRoleHandler(user.id, 'user');
+								} else {
+									updateRoleHandler(user.id, 'pending');
+								}
 							}}
 						>
 							<Badge
@@ -521,10 +486,10 @@
 	ⓘ {$i18n.t("Click on the user role button to change a user's role.")}
 </div>
 
-<Pagination bind:page count={total} perPage={10} />
+<Pagination bind:page count={users.length} />
 
 {#if !$config?.license_metadata}
-	{#if total > 50}
+	{#if users.length > 50}
 		<div class="text-sm">
 			<Markdown
 				content={`

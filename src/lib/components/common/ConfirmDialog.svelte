@@ -1,13 +1,10 @@
 <script lang="ts">
-	import DOMPurify from 'dompurify';
-
 	import { onMount, getContext, createEventDispatcher } from 'svelte';
 	const i18n = getContext('i18n');
 	const dispatch = createEventDispatcher();
 
 	import { fade } from 'svelte/transition';
 	import { flyAndScale } from '$lib/utils/transitions';
-	import { marked } from 'marked';
 
 	export let title = '';
 	export let message = '';
@@ -93,8 +90,7 @@
 				<slot>
 					<div class=" text-sm text-gray-500 flex-1">
 						{#if message !== ''}
-							{@const html = DOMPurify.sanitize(marked.parse(message))}
-							{@html html}
+							{message}
 						{:else}
 							{$i18n.t('This action cannot be undone. Do you wish to continue?')}
 						{/if}

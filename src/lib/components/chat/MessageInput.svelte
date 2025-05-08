@@ -89,8 +89,7 @@
 		files,
 		selectedToolIds,
 		imageGenerationEnabled,
-		webSearchEnabled,
-		codeInterpreterEnabled
+		webSearchEnabled
 	});
 
 	let showTools = false;
@@ -396,37 +395,39 @@
 				</div>
 
 				<div class="w-full relative">
-					{#if atSelectedModel !== undefined}
+					{#if atSelectedModel !== undefined || selectedToolIds.length > 0 || webSearchEnabled || ($settings?.webSearch ?? false) === 'always' || imageGenerationEnabled || codeInterpreterEnabled}
 						<div
 							class="px-3 pb-0.5 pt-1.5 text-left w-full flex flex-col absolute bottom-0 left-0 right-0 bg-linear-to-t from-white dark:from-gray-900 z-10"
 						>
-							<div class="flex items-center justify-between w-full">
-								<div class="pl-[1px] flex items-center gap-2 text-sm dark:text-gray-500">
-									<img
-										crossorigin="anonymous"
-										alt="model profile"
-										class="size-3.5 max-w-[28px] object-cover rounded-full"
-										src={$models.find((model) => model.id === atSelectedModel.id)?.info?.meta
-											?.profile_image_url ??
-											($i18n.language === 'dg-DG'
-												? `/doge.png`
-												: `${WEBUI_BASE_URL}/static/favicon.png`)}
-									/>
-									<div class="translate-y-[0.5px]">
-										Talking to <span class=" font-medium">{atSelectedModel.name}</span>
+							{#if atSelectedModel !== undefined}
+								<div class="flex items-center justify-between w-full">
+									<div class="pl-[1px] flex items-center gap-2 text-sm dark:text-gray-500">
+										<img
+											crossorigin="anonymous"
+											alt="model profile"
+											class="size-3.5 max-w-[28px] object-cover rounded-full"
+											src={$models.find((model) => model.id === atSelectedModel.id)?.info?.meta
+												?.profile_image_url ??
+												($i18n.language === 'dg-DG'
+													? `/doge.png`
+													: `${WEBUI_BASE_URL}/static/favicon.png`)}
+										/>
+										<div class="translate-y-[0.5px]">
+											Talking to <span class=" font-medium">{atSelectedModel.name}</span>
+										</div>
+									</div>
+									<div>
+										<button
+											class="flex items-center dark:text-gray-500"
+											on:click={() => {
+												atSelectedModel = undefined;
+											}}
+										>
+											<XMark />
+										</button>
 									</div>
 								</div>
-								<div>
-									<button
-										class="flex items-center dark:text-gray-500"
-										on:click={() => {
-											atSelectedModel = undefined;
-										}}
-									>
-										<XMark />
-									</button>
-								</div>
-							</div>
+							{/if}
 						</div>
 					{/if}
 
@@ -480,14 +481,14 @@
 					{#if recording}
 						<VoiceRecording
 							bind:recording
-							onCancel={async () => {
+							on:cancel={async () => {
 								recording = false;
 
 								await tick();
 								document.getElementById('chat-input')?.focus();
 							}}
-							onConfirm={async (data) => {
-								const { text, filename } = data;
+							on:confirm={async (e) => {
+								const { text, filename } = e.detail;
 								prompt = `${prompt}${text} `;
 
 								recording = false;
@@ -1062,9 +1063,9 @@
 													);
 												}
 											}}
-											uploadOneDriveHandler={async (authorityType) => {
+											uploadOneDriveHandler={async () => {
 												try {
-													const fileData = await pickAndDownloadFile(authorityType);
+													const fileData = await pickAndDownloadFile();
 													if (fileData) {
 														const file = new File([fileData.blob], fileData.name, {
 															type: fileData.blob.type || 'application/octet-stream'
