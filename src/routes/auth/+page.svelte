@@ -12,7 +12,6 @@
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
 
 	import { generateInitialsImage, canvasPixelTest } from '$lib/utils';
-	import { setupSocket } from '$lib/utils/websocket';
 	import { app, authentication } from '@microsoft/teams-js';
 
 	import Spinner from '$lib/components/common/Spinner.svelte';
